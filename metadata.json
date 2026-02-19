@@ -1,0 +1,8 @@
+{
+  "name": "NEXA GLOBAL",
+  "description": "Aplikasi obrolan Global Antara kamu dan aku.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
