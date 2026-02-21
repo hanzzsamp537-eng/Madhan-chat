@@ -23,9 +23,10 @@ export default async function handler(req, res) {
 
     // Ping Data Base Cuy
     if (action === 'ping') {
-      if (process.env.DATABASE_URL) {
+      const dbUrl = process.env.DATABASE_URL || process.env.DATABASE_KEY;
+      if (dbUrl) {
         try {
-          const sql = neon(process.env.DATABASE_URL);
+          const sql = neon(dbUrl);
           // Auto-create tables if missing
           await sql`
             CREATE TABLE IF NOT EXISTS messages (
@@ -58,6 +59,13 @@ export default async function handler(req, res) {
               timestamp BIGINT
             );
           `;
+          await sql`
+            CREATE TABLE IF NOT EXISTS favorites (
+              userId TEXT,
+              url TEXT,
+              PRIMARY KEY (userId, url)
+            );
+          `;
         } catch (dbErr) {
           console.error("DB_INIT_WARNING:", dbErr.message);
         }
@@ -67,14 +75,14 @@ export default async function handler(req, res) {
         status: 'ONLINE', 
         version: '2.2.0-STABLE',
         timestamp: Date.now(),
-        dbConfigured: !!process.env.DATABASE_URL
+        dbConfigured: !!(process.env.DATABASE_URL || process.env.DATABASE_KEY)
       });
     }
 
     // Handle Auth 
     if (action === 'auth') {
       const { email, password } = payload || {};
-      const isAdmin = email === process.env.GMAIL_KEY && password === process.env.PASSWORD_KEY;
+      const isAdmin = email === 'Madan123@gmail.com' && password === 'Madhan1122';
       
       if (isAdmin) {
         return res.status(200).json({
@@ -94,11 +102,12 @@ export default async function handler(req, res) {
     }
 
     // Database Actions
-    if (!process.env.DATABASE_URL) {
-      return res.status(503).json({ error: 'DB_NOT_CONFIGURED', message: 'DATABASE_URL environment variable is missing.' });
+    const dbUrl = process.env.DATABASE_URL || process.env.DATABASE_KEY;
+    if (!dbUrl) {
+      return res.status(503).json({ error: 'DB_NOT_CONFIGURED', message: 'DATABASE_URL or DATABASE_KEY environment variable is missing.' });
     }
     
-    const sql = neon(process.env.DATABASE_URL);
+    const sql = neon(dbUrl);
 
     switch (action) {
       case 'get_messages':
@@ -141,6 +150,24 @@ export default async function handler(req, res) {
           VALUES (${suggestion.id}, ${suggestion.userId}, ${suggestion.userName}, ${suggestion.userAvatar}, ${suggestion.content}, ${suggestion.timestamp})
         `;
         return res.status(200).json({ success: true });
+      }
+
+      case 'get_favorites': {
+        const { userId } = payload || {};
+        const favs = await sql`SELECT url FROM favorites WHERE userId = ${userId}`;
+        return res.status(200).json(favs.map(f => f.url));
+      }
+
+      case 'toggle_favorite': {
+        const { userId, url } = payload || {};
+        const exists = await sql`SELECT 1 FROM favorites WHERE userId = ${userId} AND url = ${url}`;
+        if (exists.length > 0) {
+          await sql`DELETE FROM favorites WHERE userId = ${userId} AND url = ${url}`;
+          return res.status(200).json({ action: 'removed' });
+        } else {
+          await sql`INSERT INTO favorites (userId, url) VALUES (${userId}, ${url})`;
+          return res.status(200).json({ action: 'added' });
+        }
       }
 
       default:
