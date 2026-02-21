@@ -1,7 +1,7 @@
 import { neon } from '@neondatabase/serverless';
 
 export default async function handler(req, res) {
-  // CORS 
+  // CORS Configuration
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -9,7 +9,7 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
 
   try {
-    // Handle Json Body ye
+    // Handle both JSON body and Query params
     let body = {};
     if (req.body) {
       body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
@@ -21,11 +21,12 @@ export default async function handler(req, res) {
       return res.status(200).json({ status: 'READY', info: 'NEXA API ENDPOINT' });
     }
 
-    // Ping Data Base Cuy
+    // Ping & Auto-Init Database Schema
     if (action === 'ping') {
-      if (process.env.DATABASE_URL) {
+      const dbUrl = process.env.DATABASE_URL || process.env.DATABASE_KEY;
+      if (dbUrl) {
         try {
-          const sql = neon(process.env.DATABASE_URL);
+          const sql = neon(dbUrl);
           // Auto-create tables if missing
           await sql`
             CREATE TABLE IF NOT EXISTS messages (
@@ -67,18 +68,24 @@ export default async function handler(req, res) {
         status: 'ONLINE', 
         version: '2.2.0-STABLE',
         timestamp: Date.now(),
-        dbConfigured: !!process.env.DATABASE_URL
+        dbConfigured: !!(process.env.DATABASE_URL || process.env.DATABASE_KEY)
       });
     }
 
-    // Handle Auth 
+    // Handle Auth separately
     if (action === 'auth') {
       const { email, password } = payload || {};
       const isAdmin = email === process.env.GMAIL_KEY && password === process.env.PASSWORD_KEY;
       
       if (isAdmin) {
         return res.status(200).json({
-          user: { id: 'admin-01', name: 'NEXA CEO', role: 'admin', avatar: 'https://picsum.photos/seed/nexa-ceo/200', email }
+          user: { 
+            id: 'admin-01', 
+            name: 'MADHAN (ADMIN)', 
+            role: 'admin', 
+            avatar: 'https://picsum.photos/seed/madhan-admin/200', 
+            email 
+          }
         });
       }
       
@@ -94,11 +101,12 @@ export default async function handler(req, res) {
     }
 
     // Database Actions
-    if (!process.env.DATABASE_URL) {
-      return res.status(503).json({ error: 'DB_NOT_CONFIGURED', message: 'DATABASE_URL environment variable is missing.' });
+    const dbUrl = process.env.DATABASE_URL || process.env.DATABASE_KEY;
+    if (!dbUrl) {
+      return res.status(503).json({ error: 'DB_NOT_CONFIGURED', message: 'DATABASE_URL or DATABASE_KEY environment variable is missing.' });
     }
     
-    const sql = neon(process.env.DATABASE_URL);
+    const sql = neon(dbUrl);
 
     switch (action) {
       case 'get_messages':
@@ -113,6 +121,48 @@ export default async function handler(req, res) {
           INSERT INTO messages (id, userId, userName, userAvatar, text, timestamp, role) 
           VALUES (${message.id}, ${message.userId}, ${message.userName}, ${message.userAvatar}, ${message.text}, ${message.timestamp}, ${message.role})
           ON CONFLICT (id) DO NOTHING
+        `;
+        return res.status(200).json({ success: true });
+      }
+
+      case 'get_tickets':
+        const tickets = await sql`SELECT * FROM tickets ORDER BY timestamp DESC`;
+        return res.status(200).json(tickets);
+        
+      case 'send_ticket': {
+        const { ticket } = payload || {};
+        await sql`
+          INSERT INTO tickets (id, userId, userName, subject, status, timestamp)
+          VALUES (${ticket.id}, ${ticket.userId}, ${ticket.userName}, ${ticket.subject}, ${ticket.status}, ${ticket.timestamp})
+        `;
+        return res.status(200).json({ success: true });
+      }
+
+      case 'get_suggestions':
+        const suggestions = await sql`SELECT * FROM suggestions ORDER BY timestamp DESC`;
+        return res.status(200).json(suggestions);
+
+      case 'send_suggestion': {
+        const { suggestion } = payload || {};
+        await sql`
+          INSERT INTO suggestions (id, userId, userName, userAvatar, content, timestamp)
+          VALUES (${suggestion.id}, ${suggestion.userId}, ${suggestion.userName}, ${suggestion.userAvatar}, ${suggestion.content}, ${suggestion.timestamp})
+        `;
+        return res.status(200).json({ success: true });
+      }
+
+      default:
+        return res.status(400).json({ error: 'INVALID_ACTION', requested: action });
+    }
+
+  } catch (error) {
+    console.error('NEXA_API_CORE_ERROR:', error);
+    return res.status(500).json({ 
+      error: 'INTERNAL_SERVER_ERROR', 
+      details: error.message 
+    });
+  }
+    }          ON CONFLICT (id) DO NOTHING
         `;
         return res.status(200).json({ success: true });
       }
